@@ -11,6 +11,11 @@ class ParanoidTest < ParanoidBaseTest
     assert ParanoidTime.paranoid?
   end
 
+  def test_attr_protected_column
+    pt = ParanoidTime.new(:deleted_at => Time.now)
+    assert_nil pt.deleted_at
+  end
+
   def test_scope_inclusion_with_time_column_type
     assert ParanoidTime.respond_to?(:deleted_inside_time_window)
     assert ParanoidTime.respond_to?(:deleted_before_time)
@@ -61,6 +66,20 @@ class ParanoidTest < ParanoidBaseTest
     ParanoidTime.delete_all!
     assert_empty ParanoidTime.all
     assert_empty ParanoidTime.with_deleted.all
+  end
+
+  def test_non_persisted_destroy
+    pt = ParanoidTime.new
+    assert_nil pt.paranoid_value
+    pt.destroy
+    assert_not_nil pt.paranoid_value
+  end
+
+  def test_non_persisted_destroy!
+    pt = ParanoidTime.new
+    assert_nil pt.paranoid_value
+    pt.destroy!
+    assert_not_nil pt.paranoid_value
   end
 
   def test_recovery
@@ -182,6 +201,43 @@ class ParanoidTest < ParanoidBaseTest
     assert_equal 3, ParanoidHasOneDependant.count
     assert_equal 1, NotParanoid.count
     assert_equal 0, HasOneNotParanoid.count
+  end
+  
+  def test_recursive_recovery_for_belongs_to_polymorphic
+    child_1 = ParanoidAndroid.create
+    section_1 = ParanoidSection.create(:paranoid_thing => child_1)
+    
+    child_2 = ParanoidHuman.create(:gender => 'male')
+    section_2 = ParanoidSection.create(:paranoid_thing => child_2)
+    
+    assert_equal section_1.paranoid_thing, child_1
+    assert_equal section_1.paranoid_thing.class, ParanoidAndroid
+    assert_equal section_2.paranoid_thing, child_2
+    assert_equal section_2.paranoid_thing.class, ParanoidHuman
+    
+    parent = ParanoidTime.create(:name => "paranoid_parent")
+    parent.paranoid_sections << section_1
+    parent.paranoid_sections << section_2
+    
+    assert_equal 4, ParanoidTime.count
+    assert_equal 2, ParanoidSection.count
+    assert_equal 1, ParanoidAndroid.count
+    assert_equal 1, ParanoidHuman.count
+    
+    parent.destroy
+    
+    assert_equal 3, ParanoidTime.count
+    assert_equal 0, ParanoidSection.count
+    assert_equal 0, ParanoidAndroid.count
+    assert_equal 0, ParanoidHuman.count
+    
+    parent.reload
+    parent.recover
+    
+    assert_equal 4, ParanoidTime.count
+    assert_equal 2, ParanoidSection.count
+    assert_equal 1, ParanoidAndroid.count
+    assert_equal 1, ParanoidHuman.count
   end
 
   def test_non_recursive_recovery
